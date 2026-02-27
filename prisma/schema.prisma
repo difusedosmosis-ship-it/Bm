@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CONSUMER
+  VENDOR
+  ADMIN
+}
+
+enum KycStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum RequestMode {
+  MATCHED   // system dispatches
+  CHOOSE    // customer chose a vendor
+}
+
+enum RequestStatus {
+  CREATED
+  DISPATCHING
+  OFFERED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELED
+  EXPIRED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum TxStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id            String   @id
+  role          Role
+  email         String?  @unique
+  phone         String?  @unique
+  passwordHash  String?
+  fullName      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  vendorProfile VendorProfile?
+  reviewsGiven  Review[] @relation("ReviewsByConsumer")
+  reviewsGot    Review[] @relation("ReviewsForVendor")
+
+  ledgerEntries WalletLedger[]
+  transactions  Transaction[]
+}
+
+model VendorProfile {
+  id             String   @id
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+
+  businessName   String?
+  city           String?
+  coverageKm     Int      @default(10)
+  isOnline       Boolean  @default(false)
+
+  kycStatus      KycStatus @default(DRAFT)
+  kycNote        String?
+
+  services       VendorService[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model KycSubmission {
+  id           String   @id
+  vendorId     String
+  vendor       VendorProfile @relation(fields: [vendorId], references: [id])
+
+  idDocUrl     String?
+  selfieUrl    String?
+  businessDocUrl String?
+  skillProofUrl  String?
+
+  status       KycStatus @default(SUBMITTED)
+  reviewerNote String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Category {
+  id        String   @id
+  name      String   @unique
+  kind      String   @default("PHYSICAL") // PHYSICAL | BOOKING (future)
+  createdAt DateTime @default(now())
+}
+
+model VendorService {
+  id          String   @id
+  vendorId    String
+  vendor      VendorProfile @relation(fields: [vendorId], references: [id])
+
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+
+  title       String
+  pricingType String   @default("from") // fixed | from | quote
+  priceFrom   Int?
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([vendorId])
+  @@index([categoryId])
+}
+
+model Request {
+  id           String   @id
+  consumerId   String
+  consumer     User     @relation(fields: [consumerId], references: [id])
+
+  mode         RequestMode
+  city         String
+  category     String
+  description  String
+  urgency      String   @default("normal") // normal | urgent
+
+  lat          Float
+  lng          Float
+
+  chosenVendorId String?
+  status       RequestStatus @default(CREATED)
+
+  acceptedVendorId String?
+  acceptedAt    DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  offers       DispatchOffer[]
+}
+
+model DispatchOffer {
+  id         String   @id
+  requestId  String
+  request    Request  @relation(fields: [requestId], references: [id])
+
+  vendorId   String
+  vendor     VendorProfile @relation(fields: [vendorId], references: [id])
+
+  status     OfferStatus @default(PENDING)
+  expiresAt  DateTime
+
+  createdAt  DateTime @default(now())
+
+  @@index([requestId])
+  @@index([vendorId])
+}
+
+model Review {
+  id         String   @id
+  requestId  String
+  request    Request  @relation(fields: [requestId], references: [id])
+
+  consumerId String
+  consumer   User     @relation("ReviewsByConsumer", fields: [consumerId], references: [id])
+
+  vendorId   String
+  vendorUser User     @relation("ReviewsForVendor", fields: [vendorId], references: [id])
+
+  rating     Int
+  comment    String?
+
+  createdAt  DateTime @default(now())
+}
+
+model WalletLedger {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  amount    Int      // +credit, -debit
+  currency  String   @default("NGN")
+  reason    String
+  refType   String?
+  refId     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Transaction {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  amount    Int
+  currency  String   @default("NGN")
+  status    TxStatus @default(PENDING)
+  provider  String?  // paystack, flutterwave, etc
+  providerRef String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
