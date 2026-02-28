@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -22,8 +23,8 @@ enum KycStatus {
 }
 
 enum RequestMode {
-  MATCHED   // system dispatches
-  CHOOSE    // customer chose a vendor
+  MATCHED
+  CHOOSE
 }
 
 enum RequestStatus {
@@ -52,166 +53,158 @@ enum TxStatus {
 }
 
 model User {
-  id            String   @id
-  role          Role
-  email         String?  @unique
-  phone         String?  @unique
-  passwordHash  String?
-  fullName      String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  role         Role
+  email        String?  @unique
+  phone        String?  @unique
+  passwordHash String?
+  fullName     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   vendorProfile VendorProfile?
 
-  // ✅ Opposite side of Request.consumer
+  // Opposite side of Request.consumer
   consumerRequests Request[] @relation("ConsumerRequests")
 
-  reviewsGiven  Review[] @relation("ReviewsByConsumer")
-  reviewsGot    Review[] @relation("ReviewsForVendor")
+  reviewsGiven Review[] @relation("ReviewsByConsumer")
+  reviewsGot   Review[] @relation("ReviewsForVendor")
 
   ledgerEntries WalletLedger[]
   transactions  Transaction[]
 }
 
 model VendorProfile {
-  id             String   @id
-  userId         String   @unique
-  user           User     @relation(fields: [userId], references: [id])
+  id       String @id @default(cuid())
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  businessName   String?
-  city           String?
-  coverageKm     Int      @default(10)
-  isOnline       Boolean  @default(false)
+  businessName String?
+  city         String?
+  coverageKm   Int     @default(10)
+  isOnline     Boolean @default(false)
 
-  kycStatus      KycStatus @default(DRAFT)
-  kycNote        String?
+  kycStatus KycStatus @default(DRAFT)
+  kycNote   String?
 
   services       VendorService[]
-
-  // ✅ Opposite side of KycSubmission.vendor
   kycSubmissions KycSubmission[]
-
-  // ✅ Opposite side of DispatchOffer.vendor
   dispatchOffers DispatchOffer[]
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model KycSubmission {
-  id             String   @id
-  vendorId       String
-  vendor         VendorProfile @relation(fields: [vendorId], references: [id])
+  id       String @id @default(cuid())
+  vendorId String
+  vendor   VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   idDocUrl       String?
   selfieUrl      String?
   businessDocUrl String?
   skillProofUrl  String?
 
-  status         KycStatus @default(SUBMITTED)
-  reviewerNote   String?
+  status       KycStatus @default(SUBMITTED)
+  reviewerNote String?
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId])
 }
 
 model Category {
-  id        String   @id
+  id        String   @id @default(cuid())
   name      String   @unique
   kind      String   @default("PHYSICAL") // PHYSICAL | BOOKING (future)
   createdAt DateTime @default(now())
 
-  // ✅ Opposite side of VendorService.category
   vendorServices VendorService[]
 }
 
 model VendorService {
-  id          String   @id
-  vendorId    String
-  vendor      VendorProfile @relation(fields: [vendorId], references: [id])
+  id       String @id @default(cuid())
+  vendorId String
+  vendor   VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id])
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   title       String
-  pricingType String   @default("from") // fixed | from | quote
+  pricingType String  @default("from") // fixed | from | quote
   priceFrom   Int?
-  isActive    Boolean  @default(true)
+  isActive    Boolean @default(true)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([vendorId])
   @@index([categoryId])
 }
 
 model Request {
-  id           String   @id
+  id String @id @default(cuid())
 
-  consumerId   String
-  consumer     User     @relation("ConsumerRequests", fields: [consumerId], references: [id])
+  consumerId String
+  consumer   User @relation("ConsumerRequests", fields: [consumerId], references: [id], onDelete: Cascade)
 
-  mode         RequestMode
-  city         String
-  category     String
-  description  String
-  urgency      String   @default("normal") // normal | urgent
+  mode        RequestMode
+  city        String
+  category    String
+  description String
+  urgency     String @default("normal") // normal | urgent
 
-  lat          Float
-  lng          Float
+  lat Float
+  lng Float
 
   chosenVendorId String?
-  status       RequestStatus @default(CREATED)
+  status         RequestStatus @default(CREATED)
 
   acceptedVendorId String?
-  acceptedAt    DateTime?
+  acceptedAt       DateTime?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  offers       DispatchOffer[]
-
-  // ✅ Opposite side of Review.request
-  reviews      Review[]
+  offers  DispatchOffer[]
+  reviews Review[]
 
   @@index([consumerId])
 }
 
 model DispatchOffer {
-  id         String   @id
-  requestId  String
-  request    Request  @relation(fields: [requestId], references: [id])
+  id String @id @default(cuid())
 
-  vendorId   String
-  vendor     VendorProfile @relation(fields: [vendorId], references: [id])
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  status     OfferStatus @default(PENDING)
-  expiresAt  DateTime
+  vendorId String
+  vendor   VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
-  createdAt  DateTime @default(now())
+  status    OfferStatus @default(PENDING)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@index([requestId])
   @@index([vendorId])
 }
 
 model Review {
-  id         String   @id
+  id String @id @default(cuid())
 
-  requestId  String
-  request    Request  @relation(fields: [requestId], references: [id])
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   consumerId String
-  consumer   User     @relation("ReviewsByConsumer", fields: [consumerId], references: [id])
+  consumer   User @relation("ReviewsByConsumer", fields: [consumerId], references: [id], onDelete: Cascade)
 
   vendorId   String
-  vendorUser User     @relation("ReviewsForVendor", fields: [vendorId], references: [id])
+  vendorUser User @relation("ReviewsForVendor", fields: [vendorId], references: [id], onDelete: Cascade)
 
-  rating     Int
-  comment    String?
-
-  createdAt  DateTime @default(now())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
 
   @@index([requestId])
   @@index([consumerId])
@@ -219,15 +212,16 @@ model Review {
 }
 
 model WalletLedger {
-  id        String   @id
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id String @id @default(cuid())
 
-  amount    Int      // +credit, -debit
-  currency  String   @default("NGN")
-  reason    String
-  refType   String?
-  refId     String?
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  amount   Int // +credit, -debit
+  currency String @default("NGN")
+  reason   String
+  refType  String?
+  refId    String?
 
   createdAt DateTime @default(now())
 
@@ -235,18 +229,19 @@ model WalletLedger {
 }
 
 model Transaction {
-  id          String   @id
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  id String @id @default(cuid())
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   amount      Int
   currency    String   @default("NGN")
   status      TxStatus @default(PENDING)
-  provider    String?  // paystack, flutterwave, etc
+  provider    String?
   providerRef String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
