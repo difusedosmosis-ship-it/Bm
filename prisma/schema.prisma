@@ -64,7 +64,6 @@ model User {
 
   vendorProfile VendorProfile?
 
-  // Opposite side of Request.consumer
   consumerRequests Request[] @relation("ConsumerRequests")
 
   reviewsGiven Review[] @relation("ReviewsByConsumer")
@@ -75,14 +74,19 @@ model User {
 }
 
 model VendorProfile {
-  id       String @id @default(cuid())
-  userId   String @unique
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   businessName String?
   city         String?
-  coverageKm   Int     @default(10)
-  isOnline     Boolean @default(false)
+
+  /// ✅ NEW: Vendor geo for proximity search / dispatch
+  lat Float?
+  lng Float?
+
+  coverageKm Int     @default(10)
+  isOnline   Boolean @default(false)
 
   kycStatus KycStatus @default(DRAFT)
   kycNote   String?
@@ -93,6 +97,12 @@ model VendorProfile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// ✅ Helpful indexes for nearby search filters
+  @@index([city])
+  @@index([isOnline])
+  @@index([kycStatus])
+  @@index([lat, lng])
 }
 
 model KycSubmission {
@@ -171,6 +181,8 @@ model Request {
   reviews Review[]
 
   @@index([consumerId])
+  @@index([city])
+  @@index([lat, lng])
 }
 
 model DispatchOffer {
@@ -188,6 +200,8 @@ model DispatchOffer {
 
   @@index([requestId])
   @@index([vendorId])
+  @@index([status])
+  @@index([expiresAt])
 }
 
 model Review {
