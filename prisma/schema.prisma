@@ -62,6 +62,10 @@ model User {
   updatedAt     DateTime @updatedAt
 
   vendorProfile VendorProfile?
+
+  // ✅ Opposite side of Request.consumer
+  consumerRequests Request[] @relation("ConsumerRequests")
+
   reviewsGiven  Review[] @relation("ReviewsByConsumer")
   reviewsGot    Review[] @relation("ReviewsForVendor")
 
@@ -83,25 +87,34 @@ model VendorProfile {
   kycNote        String?
 
   services       VendorService[]
+
+  // ✅ Opposite side of KycSubmission.vendor
+  kycSubmissions KycSubmission[]
+
+  // ✅ Opposite side of DispatchOffer.vendor
+  dispatchOffers DispatchOffer[]
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
 
 model KycSubmission {
-  id           String   @id
-  vendorId     String
-  vendor       VendorProfile @relation(fields: [vendorId], references: [id])
+  id             String   @id
+  vendorId       String
+  vendor         VendorProfile @relation(fields: [vendorId], references: [id])
 
-  idDocUrl     String?
-  selfieUrl    String?
+  idDocUrl       String?
+  selfieUrl      String?
   businessDocUrl String?
   skillProofUrl  String?
 
-  status       KycStatus @default(SUBMITTED)
-  reviewerNote String?
+  status         KycStatus @default(SUBMITTED)
+  reviewerNote   String?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([vendorId])
 }
 
 model Category {
@@ -109,6 +122,9 @@ model Category {
   name      String   @unique
   kind      String   @default("PHYSICAL") // PHYSICAL | BOOKING (future)
   createdAt DateTime @default(now())
+
+  // ✅ Opposite side of VendorService.category
+  vendorServices VendorService[]
 }
 
 model VendorService {
@@ -133,8 +149,9 @@ model VendorService {
 
 model Request {
   id           String   @id
+
   consumerId   String
-  consumer     User     @relation(fields: [consumerId], references: [id])
+  consumer     User     @relation("ConsumerRequests", fields: [consumerId], references: [id])
 
   mode         RequestMode
   city         String
@@ -155,6 +172,11 @@ model Request {
   updatedAt    DateTime @updatedAt
 
   offers       DispatchOffer[]
+
+  // ✅ Opposite side of Review.request
+  reviews      Review[]
+
+  @@index([consumerId])
 }
 
 model DispatchOffer {
@@ -176,6 +198,7 @@ model DispatchOffer {
 
 model Review {
   id         String   @id
+
   requestId  String
   request    Request  @relation(fields: [requestId], references: [id])
 
@@ -189,6 +212,10 @@ model Review {
   comment    String?
 
   createdAt  DateTime @default(now())
+
+  @@index([requestId])
+  @@index([consumerId])
+  @@index([vendorId])
 }
 
 model WalletLedger {
@@ -208,18 +235,18 @@ model WalletLedger {
 }
 
 model Transaction {
-  id        String   @id
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id          String   @id
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
 
-  amount    Int
-  currency  String   @default("NGN")
-  status    TxStatus @default(PENDING)
-  provider  String?  // paystack, flutterwave, etc
+  amount      Int
+  currency    String   @default("NGN")
+  status      TxStatus @default(PENDING)
+  provider    String?  // paystack, flutterwave, etc
   providerRef String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([userId])
 }
