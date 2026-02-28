@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import jwt, { Secret, SignOptions } from "jsonwebtoken";
 import { env } from "../../env.js";
 
 export async function hashPassword(pw: string) {
@@ -12,9 +12,16 @@ export async function verifyPassword(pw: string, hash: string) {
 }
 
 export function signToken(user: { id: string; role: string }) {
-  return jwt.sign(
-    { role: user.role },
-    env.JWT_SECRET,
-    { subject: user.id, expiresIn: env.JWT_EXPIRES_IN }
-  );
+  const secret: Secret = env.JWT_SECRET;
+
+  const payload = {
+    sub: user.id,   // standard JWT subject
+    role: user.role
+  };
+
+  const options: SignOptions = {
+    expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"]
+  };
+
+  return jwt.sign(payload, secret, options);
 }
