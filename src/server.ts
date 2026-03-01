@@ -12,6 +12,7 @@ import { vendorRoutes } from "./modules/vendor/vendor.routes.js";
 import { requestsRoutes } from "./modules/requests/requests.routes.js";
 import { reviewsRoutes } from "./modules/reviews/reviews.routes.js";
 import { walletRoutes } from "./modules/wallet/wallet.routes.js";
+import { bookingRoutes } from "./modules/booking/booking.routes.js";
 
 export function buildServer() {
   const app = express();
@@ -30,7 +31,8 @@ export function buildServer() {
   app.use("/requests", requestsRoutes());
   app.use("/reviews", reviewsRoutes());
   app.use("/wallet", walletRoutes());
-
+  app.use("/booking", bookingRoutes());
+  
   app.use(errorMiddleware);
   return app;
 }
