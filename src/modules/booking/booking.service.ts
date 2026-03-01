@@ -10,7 +10,6 @@ export async function createListing(args: {
   city?: string;
 
   provider: BookingProvider;
-  providerRef?: string;
 
   pricePerDay: number;
   currency: string;
@@ -25,7 +24,6 @@ export async function createListing(args: {
       city: args.city ?? null,
 
       provider: args.provider, // ✅ Prisma enum
-      providerRef: args.providerRef ?? null,
 
       pricePerDay: args.pricePerDay,
       currency: args.currency,
