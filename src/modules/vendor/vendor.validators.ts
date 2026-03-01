@@ -1,8 +1,10 @@
 import { z } from "zod";
 
-// Use Zod's built-in coercion (safe for strings coming from forms)
-const zCoerceNumber = () =>
-  z.coerce.number().refine((v) => Number.isFinite(v), "Invalid number");
+/**
+ * Coerces "12" -> 12 and still returns a ZodNumber (NOT ZodEffects),
+ * so we can chain .int().min().max() without TS errors.
+ */
+const zCoerceNumber = () => z.coerce.number().finite();
 
 export const UpdateVendorProfileSchema = z
   .object({
