@@ -1,22 +1,22 @@
-import type { BookingKind } from "@prisma/client";
+import type { BookingKind, BookingProvider } from "@prisma/client";
 import { prisma } from "../../prisma.js";
 import { HttpError } from "../../utils/http.js";
-import { getProvider, type ProviderName } from "./booking.providers.js";
+import { getProvider } from "./booking.providers.js";
 
 export async function createListing(args: {
   kind: BookingKind;
   title: string;
   description?: string;
   city?: string;
-  provider: ProviderName;
+
+  provider: BookingProvider;
   providerRef?: string;
+
   pricePerDay: number;
   currency: string;
   capacity?: number;
   isActive?: boolean;
 }) {
-  // You can add permission checks in routes (ADMIN or VENDOR) — service stays pure.
-
   const row = await prisma.bookingListing.create({
     data: {
       kind: args.kind,
@@ -24,13 +24,13 @@ export async function createListing(args: {
       description: args.description ?? null,
       city: args.city ?? null,
 
-      provider: args.provider,
+      provider: args.provider, // ✅ Prisma enum
       providerRef: args.providerRef ?? null,
 
       pricePerDay: args.pricePerDay,
       currency: args.currency,
       capacity: args.capacity ?? null,
-      isActive: args.isActive ?? false, // default draft unless published
+      isActive: args.isActive ?? false,
     },
   });
 
@@ -41,12 +41,10 @@ export async function updateListing(listingId: string, patch: Record<string, any
   const existing = await prisma.bookingListing.findUnique({ where: { id: listingId } });
   if (!existing) throw new HttpError(404, "Listing not found");
 
-  const updated = await prisma.bookingListing.update({
+  return prisma.bookingListing.update({
     where: { id: listingId },
     data: patch as any,
   });
-
-  return updated;
 }
 
 export async function getListingById(listingId: string) {
@@ -57,7 +55,7 @@ export async function getListingById(listingId: string) {
 
 export async function listListings(args: {
   kind?: BookingKind;
-  provider?: ProviderName;
+  provider?: BookingProvider;
   city?: string;
   isActive?: boolean;
   limit: number;
@@ -76,7 +74,7 @@ export async function listListings(args: {
 }
 
 export async function searchListings(input: {
-  provider: ProviderName;
+  provider: BookingProvider;
   kind: BookingKind;
   city?: string;
   startAt: string;
@@ -95,7 +93,7 @@ export async function searchListings(input: {
 
 export async function createQuote(input: {
   userId: string;
-  provider: ProviderName;
+  provider: BookingProvider;
   kind: BookingKind;
   listingId?: string;
   startAt: string;
@@ -122,11 +120,10 @@ export async function confirmOrder(input: {
   quoteId: string;
   paymentMethod: "WALLET" | "CARD";
 }) {
-  // We load quote to route checkout to its provider
   const quote = await prisma.bookingQuote.findUnique({ where: { id: input.quoteId } });
   if (!quote) throw new HttpError(404, "Quote not found");
 
-  const provider = getProvider(quote.provider as ProviderName);
+  const provider = getProvider(quote.provider);
   return provider.checkout({
     userId: input.userId,
     quoteId: input.quoteId,
