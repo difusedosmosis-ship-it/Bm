@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { BookingProvider, BookingKind } from "@prisma/client";
 
-export const BookingKindSchema = z.enum(["HOTEL", "FLIGHT", "CAR", "HALL"]);
-export const ProviderSchema = z.enum(["LOCAL", "DUFFEL", "AMADEUS", "HOTELS"]); // extend later
+export const BookingKindSchema = z.nativeEnum(BookingKind);
+export const ProviderSchema = z.nativeEnum(BookingProvider);
 
 const IsoDateTimeString = z
   .string()
@@ -9,7 +10,6 @@ const IsoDateTimeString = z
   .refine((v) => !Number.isNaN(new Date(v).getTime()), "Invalid datetime");
 
 const zCoerceInt = () => z.coerce.number().int();
-const zCoerceNumber = () => z.coerce.number();
 
 export const CreateListingSchema = z.object({
   kind: BookingKindSchema,
@@ -17,15 +17,14 @@ export const CreateListingSchema = z.object({
   description: z.string().min(2).optional(),
   city: z.string().min(2).optional(),
 
-  provider: ProviderSchema.default("LOCAL"),
+  provider: ProviderSchema.default(BookingProvider.LOCAL),
   providerRef: z.string().min(2).optional(),
 
-  // MVP: store pricePerDay as integer (e.g. NGN amount). If you use kobo, stay consistent system-wide.
+  // stored as integer (NGN amount or kobo – just be consistent)
   pricePerDay: zCoerceInt().min(0),
   currency: z.string().min(3).default("NGN"),
 
   capacity: zCoerceInt().min(1).optional(),
-
   isActive: z.coerce.boolean().optional(),
 });
 
@@ -49,9 +48,8 @@ export const SearchBookingSchema = z
 export const CreateQuoteSchema = z
   .object({
     kind: BookingKindSchema,
-    provider: ProviderSchema.default("LOCAL"),
+    provider: ProviderSchema.default(BookingProvider.LOCAL),
 
-    // LOCAL quote uses listingId. Provider quotes may not.
     listingId: z.string().min(5).optional(),
 
     startAt: IsoDateTimeString,
@@ -60,7 +58,6 @@ export const CreateQuoteSchema = z
     quantity: zCoerceInt().min(1).default(1),
     notes: z.string().max(1000).optional(),
 
-    // Provider payload placeholder (for Duffel/Amadeus later)
     providerPayload: z.record(z.any()).optional(),
   })
   .refine((v) => new Date(v.endAt).getTime() > new Date(v.startAt).getTime(), {
@@ -70,7 +67,5 @@ export const CreateQuoteSchema = z
 export const ConfirmOrderSchema = z.object({
   quoteId: z.string().min(5),
   paymentMethod: z.enum(["WALLET", "CARD"]).default("CARD"),
-
-  // for CARD flow later: redirectUrl / callbackUrl etc
   meta: z.record(z.any()).optional(),
 });
