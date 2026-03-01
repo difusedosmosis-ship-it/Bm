@@ -52,6 +52,42 @@ enum TxStatus {
   REFUNDED
 }
 
+/* =========================
+   ✅ BOOKING ENGINE ENUMS
+========================= */
+
+enum BookingKind {
+  HALL
+  CAR
+  HOTEL
+  FLIGHT
+}
+
+enum BookingProvider {
+  LOCAL
+  DUFFEL
+  AMADEUS
+  EAN
+}
+
+enum BookingQuoteStatus {
+  ACTIVE
+  EXPIRED
+  USED
+  CANCELED
+}
+
+enum BookingOrderStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELED
+  COMPLETED
+}
+
+/* =========================
+   MODELS
+========================= */
+
 model User {
   id           String   @id @default(cuid())
   role         Role
@@ -71,6 +107,10 @@ model User {
 
   ledgerEntries WalletLedger[]
   transactions  Transaction[]
+
+  // ✅ Booking
+  bookingQuotes BookingQuote[]
+  bookingOrders BookingOrder[]
 }
 
 model VendorProfile {
@@ -81,7 +121,7 @@ model VendorProfile {
   businessName String?
   city         String?
 
-  /// ✅ NEW: Vendor geo for proximity search / dispatch
+  /// ✅ Vendor geo for proximity search / dispatch
   lat Float?
   lng Float?
 
@@ -95,10 +135,12 @@ model VendorProfile {
   kycSubmissions KycSubmission[]
   dispatchOffers DispatchOffer[]
 
+  // ✅ Booking listings owned by vendor (for Halls/Cars)
+  bookingListings BookingListing[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// ✅ Helpful indexes for nearby search filters
   @@index([city])
   @@index([isOnline])
   @@index([kycStatus])
@@ -258,4 +300,109 @@ model Transaction {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+/* =========================
+   ✅ BOOKING ENGINE MODELS
+========================= */
+
+model BookingListing {
+  id       String @id @default(cuid())
+
+  kind     BookingKind
+  provider BookingProvider @default(LOCAL)
+
+  /// LOCAL listings can belong to a vendor (hall/car inventory)
+  vendorId String?
+  vendor   VendorProfile? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String?
+  city        String?
+  address     String?
+
+  // optional geo for later
+  lat Float?
+  lng Float?
+
+  currency    String @default("NGN")
+  pricePerDay Int
+
+  isActive Boolean @default(true)
+
+  quotes BookingQuote[]
+  orders BookingOrder[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind])
+  @@index([city])
+  @@index([isActive])
+  @@index([vendorId])
+}
+
+model BookingQuote {
+  id       String @id @default(cuid())
+
+  kind     BookingKind
+  provider BookingProvider @default(LOCAL)
+
+  listingId String?
+  listing   BookingListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  startAt DateTime
+  endAt   DateTime
+
+  currency String @default("NGN")
+  amount   Int
+
+  status    BookingQuoteStatus @default(ACTIVE)
+  expiresAt DateTime
+
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([expiresAt])
+  @@index([listingId])
+  @@index([userId])
+}
+
+model BookingOrder {
+  id       String @id @default(cuid())
+
+  kind     BookingKind
+  provider BookingProvider @default(LOCAL)
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  listingId String?
+  listing   BookingListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  quoteId String?
+  quote   BookingQuote? @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+
+  startAt DateTime
+  endAt   DateTime
+
+  currency String @default("NGN")
+  amount   Int
+
+  status BookingOrderStatus @default(PENDING_PAYMENT)
+
+  providerRef String?
+  details     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([listingId])
+  @@index([status])
 }
