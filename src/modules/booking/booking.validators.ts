@@ -18,9 +18,8 @@ export const CreateListingSchema = z.object({
   city: z.string().min(2).optional(),
 
   provider: ProviderSchema.default(BookingProvider.LOCAL),
-  providerRef: z.string().min(2).optional(),
 
-  // stored as integer (NGN amount or kobo – just be consistent)
+  // stored as integer (NGN amount or kobo – be consistent)
   pricePerDay: zCoerceInt().min(0),
   currency: z.string().min(3).default("NGN"),
 
