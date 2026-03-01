@@ -1,7 +1,7 @@
-import type { BookingKind } from "@prisma/client";
 import { prisma } from "../../prisma.js";
 import { HttpError } from "../../utils/http.js";
 import { env } from "../../env.js";
+import type { BookingKind, BookingProvider } from "@prisma/client";
 
 function toDate(s: string) {
   const d = new Date(s);
@@ -28,13 +28,6 @@ async function isListingAvailable(listingId: string, startAt: Date, endAt: Date)
   return !overlap;
 }
 
-/**
- * Provider Hook Interface
- * - LOCAL: uses your DB inventory
- * - DUFFEL/AMADEUS/HOTELS: later will call external APIs for search/quote/confirm
- */
-export type ProviderName = "LOCAL" | "DUFFEL" | "AMADEUS" | "HOTELS";
-
 export type ProviderSearchInput = {
   kind: BookingKind;
   city?: string;
@@ -53,7 +46,7 @@ export type ProviderQuoteInput = {
   listingId?: string; // LOCAL
   notes?: string;
 
-  providerPayload?: Record<string, any>; // external providers
+  providerPayload?: Record<string, any>; // external providers later
 };
 
 export type ProviderCheckoutInput = {
@@ -62,18 +55,15 @@ export type ProviderCheckoutInput = {
   paymentMethod: "WALLET" | "CARD";
 };
 
-export interface BookingProvider {
-  name: ProviderName;
+export interface BookingProviderImpl {
+  name: BookingProvider;
 
   search(input: ProviderSearchInput): Promise<any[]>;
-  quote(input: ProviderQuoteInput): Promise<any>; // returns BookingQuote
-  checkout(input: ProviderCheckoutInput): Promise<any>; // returns BookingOrder
+  quote(input: ProviderQuoteInput): Promise<any>;
+  checkout(input: ProviderCheckoutInput): Promise<any>;
 }
 
-/**
- * LOCAL Provider Implementation (MVP)
- */
-export const LocalProvider: BookingProvider = {
+export const LocalProvider: BookingProviderImpl = {
   name: "LOCAL",
 
   async search(input) {
@@ -96,7 +86,6 @@ export const LocalProvider: BookingProvider = {
       const ok = await isListingAvailable(l.id, startAt, endAt);
       if (ok) available.push(l);
     }
-
     return available;
   },
 
@@ -114,9 +103,8 @@ export const LocalProvider: BookingProvider = {
     if (!ok) throw new HttpError(409, "Listing not available for those dates");
 
     const days = daysBetween(startAt, endAt);
-
-    // MVP pricing: per-day * days * quantity (quantity is future-friendly)
-    const amount = listing.pricePerDay * days * Math.max(1, args.quantity);
+    const qty = Math.max(1, args.quantity);
+    const amount = listing.pricePerDay * days * qty;
 
     const expiresMinutes = Number(env.BOOKING_QUOTE_EXPIRES_MINUTES ?? 10);
     const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000);
@@ -137,7 +125,7 @@ export const LocalProvider: BookingProvider = {
           notes: args.notes ?? null,
           pricePerDay: listing.pricePerDay,
           days,
-          quantity: args.quantity,
+          quantity: qty,
         },
       },
     });
@@ -158,7 +146,6 @@ export const LocalProvider: BookingProvider = {
 
     if (quote.provider !== "LOCAL") throw new HttpError(400, "Provider checkout not implemented yet");
 
-    // Ensure still available at checkout time
     if (quote.listingId) {
       const ok = await isListingAvailable(quote.listingId, quote.startAt, quote.endAt);
       if (!ok) throw new HttpError(409, "Listing no longer available");
@@ -181,12 +168,8 @@ export const LocalProvider: BookingProvider = {
         },
       });
 
-      await tx.bookingQuote.update({
-        where: { id: quote.id },
-        data: { status: "USED" },
-      });
+      await tx.bookingQuote.update({ where: { id: quote.id }, data: { status: "USED" } });
 
-      // WALLET MVP: ledger + transaction record
       if (args.paymentMethod === "WALLET") {
         await tx.walletLedger.create({
           data: {
@@ -218,13 +201,7 @@ export const LocalProvider: BookingProvider = {
   },
 };
 
-/**
- * Provider Registry
- * Later you add DuffelProvider, AmadeusProvider, HotelsProvider here.
- */
-export function getProvider(name: ProviderName): BookingProvider {
+export function getProvider(name: BookingProvider): BookingProviderImpl {
   if (name === "LOCAL") return LocalProvider;
-
-  // Stubs for now — clean plug point
   throw new HttpError(501, `${name} provider integration coming next`);
 }
