@@ -1,186 +1,155 @@
+import type { BookingKind } from "@prisma/client";
 import { prisma } from "../../prisma.js";
 import { HttpError } from "../../utils/http.js";
-import { env } from "../../env.js";
-import { BookingKind } from "@prisma/client";
+import { getProvider, type ProviderName } from "./booking.providers.js";
 
-function toDate(s: string) {
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) throw new HttpError(400, "Invalid datetime");
-  return d;
-}
+export async function createListing(args: {
+  kind: BookingKind;
+  title: string;
+  description?: string;
+  city?: string;
+  provider: ProviderName;
+  providerRef?: string;
+  pricePerDay: number;
+  currency: string;
+  capacity?: number;
+  isActive?: boolean;
+}) {
+  // You can add permission checks in routes (ADMIN or VENDOR) — service stays pure.
 
-// day count rounding up: (end-start) in days, minimum 1 day
-function daysBetween(startAt: Date, endAt: Date) {
-  const ms = endAt.getTime() - startAt.getTime();
-  if (ms <= 0) throw new HttpError(400, "endAt must be after startAt");
-  const days = Math.ceil(ms / (1000 * 60 * 60 * 24));
-  return Math.max(1, days);
-}
+  const row = await prisma.bookingListing.create({
+    data: {
+      kind: args.kind,
+      title: args.title,
+      description: args.description ?? null,
+      city: args.city ?? null,
 
-// overlap rule: (aStart < bEnd) && (bStart < aEnd)
-async function isListingAvailable(listingId: string, startAt: Date, endAt: Date) {
-  const overlap = await prisma.bookingOrder.findFirst({
-    where: {
-      listingId,
-      status: { in: ["CONFIRMED", "PENDING_PAYMENT"] },
-      AND: [
-        { startAt: { lt: endAt } },
-        { endAt: { gt: startAt } },
-      ],
+      provider: args.provider,
+      providerRef: args.providerRef ?? null,
+
+      pricePerDay: args.pricePerDay,
+      currency: args.currency,
+      capacity: args.capacity ?? null,
+      isActive: args.isActive ?? false, // default draft unless published
     },
-    select: { id: true },
   });
 
-  return !overlap;
+  return row;
 }
 
-export async function searchLocalListings(input: {
+export async function updateListing(listingId: string, patch: Record<string, any>) {
+  const existing = await prisma.bookingListing.findUnique({ where: { id: listingId } });
+  if (!existing) throw new HttpError(404, "Listing not found");
+
+  const updated = await prisma.bookingListing.update({
+    where: { id: listingId },
+    data: patch as any,
+  });
+
+  return updated;
+}
+
+export async function getListingById(listingId: string) {
+  const row = await prisma.bookingListing.findUnique({ where: { id: listingId } });
+  if (!row) throw new HttpError(404, "Listing not found");
+  return row;
+}
+
+export async function listListings(args: {
+  kind?: BookingKind;
+  provider?: ProviderName;
+  city?: string;
+  isActive?: boolean;
+  limit: number;
+}) {
+  const rows = await prisma.bookingListing.findMany({
+    where: {
+      ...(args.kind ? { kind: args.kind } : {}),
+      ...(args.provider ? { provider: args.provider } : {}),
+      ...(args.city ? { city: args.city } : {}),
+      ...(typeof args.isActive === "boolean" ? { isActive: args.isActive } : {}),
+    },
+    orderBy: { updatedAt: "desc" },
+    take: args.limit,
+  });
+  return rows;
+}
+
+export async function searchListings(input: {
+  provider: ProviderName;
   kind: BookingKind;
   city?: string;
   startAt: string;
   endAt: string;
+  limit: number;
 }) {
-  const startAt = toDate(input.startAt);
-  const endAt = toDate(input.endAt);
-
-  const listings = await prisma.bookingListing.findMany({
-    where: {
-      provider: "LOCAL",
-      kind: input.kind,
-      isActive: true,
-      ...(input.city ? { city: input.city } : {}),
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 50,
+  const provider = getProvider(input.provider);
+  return provider.search({
+    kind: input.kind,
+    city: input.city,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    limit: input.limit,
   });
-
-  // Filter by availability
-  const available: any[] = [];
-  for (const l of listings) {
-    const ok = await isListingAvailable(l.id, startAt, endAt);
-    if (ok) available.push(l);
-  }
-
-  return available;
 }
 
-export async function createLocalQuote(args: {
+export async function createQuote(input: {
   userId: string;
+  provider: ProviderName;
   kind: BookingKind;
-  listingId: string;
+  listingId?: string;
   startAt: string;
   endAt: string;
+  quantity: number;
   notes?: string;
+  providerPayload?: Record<string, any>;
 }) {
-  const startAt = toDate(args.startAt);
-  const endAt = toDate(args.endAt);
-
-  const listing = await prisma.bookingListing.findUnique({ where: { id: args.listingId } });
-  if (!listing || !listing.isActive) throw new HttpError(404, "Listing not found");
-
-  if (listing.provider !== "LOCAL") throw new HttpError(400, "Only LOCAL listings supported in MVP");
-
-  const available = await isListingAvailable(listing.id, startAt, endAt);
-  if (!available) throw new HttpError(409, "Listing not available for those dates");
-
-  const days = daysBetween(startAt, endAt);
-  const amount = listing.pricePerDay * days;
-
-  const expiresMinutes = Number(env.BOOKING_QUOTE_EXPIRES_MINUTES ?? 10);
-  const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000);
-
-  const quote = await prisma.bookingQuote.create({
-    data: {
-      kind: args.kind,
-      provider: "LOCAL",
-      listingId: listing.id,
-      userId: args.userId,
-      startAt,
-      endAt,
-      currency: listing.currency,
-      amount,
-      status: "ACTIVE",
-      expiresAt,
-      payload: {
-        notes: args.notes ?? null,
-        pricePerDay: listing.pricePerDay,
-        days,
-      },
-    },
+  const provider = getProvider(input.provider);
+  return provider.quote({
+    userId: input.userId,
+    providerPayload: input.providerPayload,
+    kind: input.kind,
+    listingId: input.listingId,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    quantity: input.quantity,
+    notes: input.notes,
   });
-
-  return quote;
 }
 
-export async function checkoutQuote(args: { userId: string; quoteId: string; paymentMethod: "WALLET" | "CARD" }) {
-  const quote = await prisma.bookingQuote.findUnique({ where: { id: args.quoteId } });
+export async function confirmOrder(input: {
+  userId: string;
+  quoteId: string;
+  paymentMethod: "WALLET" | "CARD";
+}) {
+  // We load quote to route checkout to its provider
+  const quote = await prisma.bookingQuote.findUnique({ where: { id: input.quoteId } });
   if (!quote) throw new HttpError(404, "Quote not found");
 
-  if (quote.userId && quote.userId !== args.userId) throw new HttpError(403, "Not your quote");
-  if (quote.status !== "ACTIVE") throw new HttpError(400, "Quote not active");
-  if (quote.expiresAt <= new Date()) {
-    await prisma.bookingQuote.update({ where: { id: quote.id }, data: { status: "EXPIRED" } });
-    throw new HttpError(400, "Quote expired");
-  }
+  const provider = getProvider(quote.provider as ProviderName);
+  return provider.checkout({
+    userId: input.userId,
+    quoteId: input.quoteId,
+    paymentMethod: input.paymentMethod,
+  });
+}
 
-  if (quote.provider !== "LOCAL") throw new HttpError(400, "Provider checkout not implemented yet");
+export async function myOrders(userId: string) {
+  return prisma.bookingOrder.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    include: { listing: true, quote: true },
+  });
+}
 
-  // Ensure still available at checkout time
-  if (quote.listingId) {
-    const ok = await isListingAvailable(quote.listingId, quote.startAt, quote.endAt);
-    if (!ok) throw new HttpError(409, "Listing no longer available");
-  }
-
-  // Create order (transactional)
-  const result = await prisma.$transaction(async (tx) => {
-    const order = await tx.bookingOrder.create({
-      data: {
-        kind: quote.kind,
-        provider: quote.provider,
-        userId: args.userId,
-        listingId: quote.listingId,
-        quoteId: quote.id,
-        startAt: quote.startAt,
-        endAt: quote.endAt,
-        currency: quote.currency,
-        amount: quote.amount,
-        status: args.paymentMethod === "WALLET" ? "CONFIRMED" : "PENDING_PAYMENT",
-        details: quote.payload ?? undefined,
-      },
-    });
-
-    await tx.bookingQuote.update({
-      where: { id: quote.id },
-      data: { status: "USED" },
-    });
-
-    // WALLET MVP: just create ledger entry debit (no balance enforcement yet unless you want it strict)
-    if (args.paymentMethod === "WALLET") {
-      await tx.walletLedger.create({
-        data: {
-          userId: args.userId,
-          amount: -quote.amount,
-          currency: quote.currency,
-          reason: `Booking payment (${order.kind})`,
-          refType: "booking",
-          refId: order.id,
-        },
-      });
-
-      await tx.transaction.create({
-        data: {
-          userId: args.userId,
-          amount: quote.amount,
-          currency: quote.currency,
-          status: "PAID",
-          provider: "wallet",
-          providerRef: order.id,
-        },
-      });
-    }
-
-    return order;
+export async function orderById(userId: string, id: string) {
+  const order = await prisma.bookingOrder.findUnique({
+    where: { id },
+    include: { listing: true, quote: true },
   });
 
-  return result;
+  if (!order) throw new HttpError(404, "Order not found");
+  if (order.userId !== userId) throw new HttpError(403, "Forbidden");
+  return order;
 }
