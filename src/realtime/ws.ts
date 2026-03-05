@@ -33,19 +33,22 @@ export function notifyVendor(vendorId: string, event: string, payload: any) {
 }
 
 export function initWebSockets(server: HttpServer) {
+  // ws://host/ws?token=...
   const wss = new WebSocketServer({ server, path: "/ws" });
 
   wss.on("connection", async (ws: AuthedSocket, req) => {
     try {
-      // auth via ?token=... (simple for RN/Web)
       const url = new URL(req.url ?? "", "http://localhost");
       const token = url.searchParams.get("token");
+
       if (!token) {
         ws.close(4401, "Missing token");
         return;
       }
 
       const decoded = jwt.verify(token, env.JWT_SECRET) as any;
+
+      // Support common token shapes
       const userId = decoded?.sub ?? decoded?.id ?? decoded?.userId;
       const role = decoded?.role;
 
@@ -57,7 +60,7 @@ export function initWebSockets(server: HttpServer) {
       ws.userId = userId;
       ws.role = role;
 
-      // attach vendorId if vendor
+      // Vendor sockets are what we need for dispatch
       if (role === "VENDOR") {
         const vendor = await prisma.vendorProfile.findUnique({ where: { userId } });
         if (!vendor) {
@@ -71,7 +74,6 @@ export function initWebSockets(server: HttpServer) {
       ws.send(JSON.stringify({ event: "ready", payload: { ok: true, role } }));
 
       ws.on("message", (buf) => {
-        // optionally accept client pings or subscriptions later
         const msg = buf.toString();
         if (msg === "ping") ws.send(JSON.stringify({ event: "pong", payload: Date.now() }));
       });
