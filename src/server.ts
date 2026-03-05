@@ -13,6 +13,7 @@ import { requestsRoutes } from "./modules/requests/requests.routes.js";
 import { reviewsRoutes } from "./modules/reviews/reviews.routes.js";
 import { walletRoutes } from "./modules/wallet/wallet.routes.js";
 import { bookingRoutes } from "./modules/booking/booking.routes.js";
+import { aiRoutes } from "./modules/ai/ai.routes.js";
 
 export function buildServer() {
   const app = express();
@@ -32,6 +33,7 @@ export function buildServer() {
   app.use("/reviews", reviewsRoutes());
   app.use("/wallet", walletRoutes());
   app.use("/booking", bookingRoutes());
+  app.use("/ai", aiRoutes());
   
   app.use(errorMiddleware);
   return app;
