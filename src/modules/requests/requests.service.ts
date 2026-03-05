@@ -1,5 +1,6 @@
 import { prisma } from "../../prisma.js";
 import { env } from "../../env.js";
+import { notifyVendor } from "../../realtime/ws.js";
 
 function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number) {
   const R = 6371;
@@ -26,15 +27,96 @@ export async function dispatchOneByOne(requestId: string) {
   const req = await prisma.request.findUnique({ where: { id: requestId } });
   if (!req) return;
 
+  // If already accepted/canceled/completed/expired, do nothing
+  if (["ACCEPTED", "IN_PROGRESS", "COMPLETED", "CANCELED", "EXPIRED"].includes(req.status)) return;
+
   await prisma.request.update({
     where: { id: requestId },
     data: { status: "DISPATCHING" },
   });
 
-  // Pull eligible vendors (MVP)
+  // Exclude vendors already offered/declined/expired for this request
+  const previousOffers = await prisma.dispatchOffer.findMany({
+    where: { requestId },
+    select: { vendorId: true },
+  });
+  const excludedVendorIds = previousOffers.map((o) => o.vendorId);
+
+  // Pull eligible vendors:
+  // - approved + online
+  // - same city
+  // - have geo
+  // - provide this category (Category.name === req.category)
+  // - not previously offered for this request
   const raw = await prisma.vendorProfile.findMany({
     where: {
       kycStatus: "APPROVED",
+      isOnline: true,
+      city: req.city,
+      lat: { not: null },
+      lng: { not: null },
+
+      ...(excludedVendorIds.length ? { id: { notIn: excludedVendorIds } } : {}),
+
+      services: {
+        some: {
+          isActive: true,
+          category: { name: req.category },
+        },
+      },
+    },
+    select: { id: true, coverageKm: true, lat: true, lng: true, updatedAt: true },
+    take: 50,
+    orderBy: { updatedAt: "desc" },
+  });
+
+  const candidates: DispatchCandidate[] = raw
+    .filter((v) => typeof v.lat === "number" && typeof v.lng === "number")
+    .map((v) => ({
+      id: v.id,
+      coverageKm: v.coverageKm,
+      lat: v.lat as number,
+      lng: v.lng as number,
+    }))
+    // within vendor radius
+    .filter((v) => haversineKm(req.lat, req.lng, v.lat, v.lng) <= v.coverageKm)
+    // sort nearest first
+    .sort(
+      (a, b) =>
+        haversineKm(req.lat, req.lng, a.lat, a.lng) -
+        haversineKm(req.lat, req.lng, b.lat, b.lng)
+    );
+
+  if (!candidates.length) {
+    await prisma.request.update({
+      where: { id: requestId },
+      data: { status: "EXPIRED" },
+    });
+    return;
+  }
+
+  const first = candidates[0];
+  const expiresAt = new Date(Date.now() + env.OFFER_EXPIRES_SECONDS * 1000);
+
+  // Create offer + include request so we can push full data to vendor app
+  const offer = await prisma.dispatchOffer.create({
+    data: {
+      requestId,
+      vendorId: first.id,
+      status: "PENDING",
+      expiresAt,
+    },
+    include: { request: true },
+  });
+
+  await prisma.request.update({
+    where: { id: requestId },
+    data: { status: "OFFERED" },
+  });
+
+  // 🔥 Real-time push to vendor
+  notifyVendor(first.id, "offer", { offer });
+}      kycStatus: "APPROVED",
       isOnline: true,
       city: req.city,
       lat: { not: null },
