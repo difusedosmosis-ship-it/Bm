@@ -12,7 +12,7 @@ export const env = {
   PORT: Number(process.env.PORT ?? "8080"),
 
   DATABASE_URL: must("DATABASE_URL"),
-  DIRECT_URL: process.env.DIRECT_URL ?? process.env.DATABASE_URL, // optional but helpful
+  DIRECT_URL: process.env.DIRECT_URL ?? process.env.DATABASE_URL,
 
   JWT_SECRET: must("JWT_SECRET"),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN ?? "7d",
@@ -22,4 +22,8 @@ export const env = {
   // ✅ Booking
   BOOKING_QUOTE_EXPIRES_MINUTES: Number(process.env.BOOKING_QUOTE_EXPIRES_MINUTES ?? "10"),
   BOOKING_DEFAULT_CURRENCY: process.env.BOOKING_DEFAULT_CURRENCY ?? "NGN",
+
+  // ✅ AI
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
+  OPENAI_MODEL: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
 };
